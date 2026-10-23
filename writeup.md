@@ -21,7 +21,7 @@ The goals / steps of this project are the following:
 
 [image0]: ./output_images/01_chessboard_corners.jpg "Detected corners"
 [image1]: ./output_images/01_undistort_chessboard.jpg "Undistorted"
-[image2]: ./test_images/test1.jpg "Road Transformed"
+[image2]: ./output_images/02_undistort_road.jpg "Road Transformed"
 [image3]: ./examples/binary_combo_example.jpg "Binary Example"
 [image4]: ./examples/warped_straight_lines.jpg "Warp Example"
 [image5]: ./examples/color_fit_lines.jpg "Fit Visual"
@@ -72,7 +72,11 @@ The example below uses `calibration1.jpg`, one of the three images that were ski
 
 #### 1. Provide an example of a distortion-corrected image.
 
-TODO: Add your text here!!!
+Every image and video frame is first corrected with the calibration from the previous section: `calibration.load()` reads the camera matrix and distortion coefficients from `calibration.npz`, and `calibration.undistort()` removes the lens distortion. The example below (`test1.jpg`) is produced by `python main.py images`.
+
+The difference is most visible near the image edges: the guard rail on the left and the car hood at the bottom are straightened. Because every source pixel is kept (alpha = 1), a black border appears around the corrected image. It lies outside the road area used by the next steps.
+
+![alt text][image2]
 
 #### 2. Describe how (and identify where in your code) you used color transforms, gradients or other methods to create a thresholded binary image.  Provide an example of a binary image result.
 

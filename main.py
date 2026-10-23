@@ -1,6 +1,7 @@
 """Lane finding pipeline entry point.
 
     python main.py calibrate    compute camera calibration, save calibration.npz
+    python main.py images       run the pipeline steps on test images, save writeup images
 """
 import argparse
 
@@ -8,7 +9,7 @@ import cv2
 import numpy as np
 
 from src import calibration
-from src.paths import CALIBRATION_FILE, CAMERA_CAL_DIR, OUTPUT_IMAGES_DIR
+from src.paths import CALIBRATION_FILE, CAMERA_CAL_DIR, OUTPUT_IMAGES_DIR, TEST_IMAGES_DIR
 
 
 def side_by_side(left, right, left_title, right_title):
@@ -49,10 +50,20 @@ def cmd_calibrate(_args):
     save_image("01_undistort_chessboard.jpg", out)
 
 
+def cmd_images(_args):
+    mtx, dist = calibration.load(CALIBRATION_FILE)
+
+    # Distortion correction on a road image
+    img = calibration.load_image(TEST_IMAGES_DIR / "test1.jpg")
+    undistorted = calibration.undistort(img, mtx, dist)
+    save_image("02_undistort_road.jpg", side_by_side(img, undistorted, "Original", "Undistorted"))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("calibrate", help="compute camera calibration").set_defaults(func=cmd_calibrate)
+    sub.add_parser("images", help="run the pipeline on test images").set_defaults(func=cmd_images)
     args = parser.parse_args()
     args.func(args)
 
