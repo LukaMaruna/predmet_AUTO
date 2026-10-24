@@ -9,7 +9,7 @@ import argparse
 import cv2
 import numpy as np
 
-from src import calibration, perspective, perspective_calibration, thresholds
+from src import calibration, lane_detection, perspective, perspective_calibration, thresholds
 from src.paths import (CALIBRATION_FILE, CAMERA_CAL_DIR, OUTPUT_IMAGES_DIR, PERSPECTIVE_FILE,
                        STRAIGHT_ROAD_IMAGE, TEST_IMAGES_DIR)
 
@@ -79,6 +79,31 @@ def draw_perspective_measurement(img, src, lines):
     return out
 
 
+def draw_histogram(binary, histogram):
+    """Binary image with the column histogram of its lower half drawn over it."""
+    out = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+    height = out.shape[0]
+    cv2.line(out, (0, height // 2), (out.shape[1], height // 2), (0, 0, 255), 1)
+    scale = (height // 2) / histogram.max()
+    points = np.stack([np.arange(len(histogram)), height - histogram * scale], axis=1)
+    cv2.polylines(out, [points.astype(np.int32)], False, (0, 255, 255), 2)
+    return out
+
+
+def draw_lane_lines(binary, lines):
+    """Windows (green), left/right line pixels (red/blue) and fitted polynomials (yellow)."""
+    out = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR) // 3
+    ploty = np.arange(out.shape[0])
+    for line, colour in ((lines["left"], (0, 0, 255)), (lines["right"], (255, 0, 0))):
+        out[line["ys"], line["xs"]] = colour
+        for x_low, y_low, x_high, y_high in line["windows"]:
+            cv2.rectangle(out, (x_low, y_low), (x_high, y_high), (0, 255, 0), 2)
+        a, b, c = line["fit"]
+        plotx = a * ploty ** 2 + b * ploty + c
+        cv2.polylines(out, [np.stack([plotx, ploty], axis=1).astype(np.int32)], False, (0, 255, 255), 3)
+    return out
+
+
 def cmd_images(_args):
     mtx, dist = calibration.load(CALIBRATION_FILE)
     src, dst = perspective_calibration.load(PERSPECTIVE_FILE)
@@ -102,6 +127,18 @@ def cmd_images(_args):
     warped = perspective.warper(calibration.undistort(img, mtx, dist), src, dst)
     binary = cv2.cvtColor(thresholds.binary_image(warped), cv2.COLOR_GRAY2BGR)
     save_image("04_binary.jpg", side_by_side(warped, binary, "Warped", "Binary"))
+
+    # Lane line pixels and polynomial fit on a curved road
+    img = calibration.load_image(TEST_IMAGES_DIR / "test2.jpg")
+    warped = perspective.warper(calibration.undistort(img, mtx, dist), src, dst)
+    binary = thresholds.binary_image(warped)
+    lines, histogram = lane_detection.find_lane_lines(binary)
+    for side, line in lines.items():
+        a, b, c = line["fit"]
+        print(f"{side} line: histogram peak at x = {line['base']}, {len(line['ys'])} pixels, "
+              f"fit x = {a:.3e}*y^2 + {b:.3f}*y + {c:.1f}")
+    save_image("05_lane_fit.jpg", side_by_side(draw_histogram(binary, histogram), draw_lane_lines(binary, lines),
+                                               "Histogram", "Sliding windows and fit"))
 
 
 def main():

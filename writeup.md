@@ -25,7 +25,7 @@ The goals / steps of this project are the following:
 [image3]: ./output_images/04_binary.jpg "Binary Example"
 [image3a]: ./output_images/03_perspective_points.jpg "Perspective points"
 [image4]: ./output_images/03_warped_straight_lines.jpg "Warp Example"
-[image5]: ./examples/color_fit_lines.jpg "Fit Visual"
+[image5]: ./output_images/05_lane_fit.jpg "Fit Visual"
 [image6]: ./examples/example_output.jpg "Output"
 [video1]: ./project_video.mp4 "Video"
 
@@ -137,7 +137,28 @@ After the transform both lines of `straight_lines1.jpg` are vertical and paralle
 
 #### 4. Describe how (and identify where in your code) you identified lane-line pixels and fit their positions with a polynomial?
 
-TODO: Add your text here!!!
+The code is in `src/lane_detection.py`. `find_lane_lines()` takes the binary top-down image and runs three steps for each lane line.
+
+**1. Column histogram (`column_histogram()`, `line_bases()`).** For every column of the lower half of the binary image, the number of line pixels is counted. In the top-down view the lane lines are almost vertical, so all pixels of a line fall into a few neighbouring columns and give a clear peak. Only the lower half is used because near the car the lines are almost straight, while further ahead they may bend and the peak would be smeared. The highest peak in the left half of the image is the starting column of the left line, and the highest peak in the right half is the starting column of the right line.
+
+**2. Sliding windows (`sliding_window()`).** Starting at the histogram peak, 9 windows (`NWINDOWS`), each 80 px high and 200 px wide (`MARGIN` = 100 px to each side), are placed on top of each other from the bottom to the top of the image. The line pixels inside a window are assigned to that line. If there are more than 50 of them (`MINPIX`), the next window is centred on their mean x position; otherwise it keeps the position of the previous one. In a curve the windows therefore follow the line.
+
+**3. Polynomial fit (`fit_poly()`).** A second order polynomial is fitted through the collected pixels of each line with `np.polyfit()`:
+
+x = a·y² + b·y + c
+
+x is written as a function of y because the lines are almost vertical: a vertical line cannot be written as y = f(x), since many y values belong to one x value. a describes the curvature (a = 0 is a straight line), b the slope and c the position of the line at the top of the image (y = 0).
+
+Example on `test2.jpg` (left curve). The left panel shows the binary image with the column histogram of its lower half (yellow); its peaks are at x = 365 (left line) and x = 1003 (right line). The right panel shows the sliding windows (green), the pixels of the left and right line (red and blue) and the fitted polynomials (yellow):
+
+```
+left line:  x = -2.730e-04·y² + 0.402·y + 229.3
+right line: x = -8.869e-05·y² + 0.254·y + 903.3
+```
+
+![alt text][image5]
+
+On this image the right line has only two dashes in view, so its polynomial is based on few pixels. In the video this is handled by smoothing the fits over several frames (see the video section).
 
 #### 5. Describe how (and identify where in your code) you calculated the radius of curvature of the lane and the position of the vehicle with respect to center.
 
