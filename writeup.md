@@ -162,7 +162,35 @@ On this image the right line has only two dashes in view, so its polynomial is b
 
 #### 5. Describe how (and identify where in your code) you calculated the radius of curvature of the lane and the position of the vehicle with respect to center.
 
-TODO: Add your text here!!!
+Both values are computed in `src/measurements.py` (`measure()`), in metres, at the bottom row of the top-down image (y = 719), which is the part of the road closest to the car.
+
+**Pixel to metre conversion.** The conversion factors are measured once by `python main.py calibrate` (`pixel_scale()` in `src/perspective_calibration.py`) on the top-down binary image of `straight_lines1.jpg`, and saved to `perspective.npz`. They use two US highway standards: a lane width of 3.7 m (12 ft) and a dash length of 3 m (10 ft).
+
+* x: the lane lines are at x = 320 and x = 960 in the top-down view, so 640 px correspond to 3.7 m: `xm_per_pix` = 3.7 / 640 = 0.00578 m/px.
+* y: `dash_lengths()` measures the dashes of the dashed line in a narrow column band around it. Dashes cut off by the image border are ignored. The two complete dashes are 102 and 91 px long, so `ym_per_pix` = 3.0 / 96.5 = 0.0311 m/px. The top-down image therefore covers about 22 m of road ahead of the car.
+
+As a check, the lane width measured from the fitted lines at the bottom of all eight test images is 3.67–3.99 m.
+
+**Radius of curvature (`radius_of_curvature()`).** The pixel coordinates of each line are multiplied by `ym_per_pix` and `xm_per_pix`, and a second order polynomial x = A·y² + B·y + C is fitted again, now in metres. The radius at the bottom row is
+
+R = (1 + (2·A·y + B)²)^(3/2) / |2·A|
+
+The lane radius is the mean of the left and right line radius.
+
+**Vehicle position (`vehicle_offset()`).** The camera is mounted in the middle of the car, so the vehicle is at the horizontal centre (x = 640) of the camera image. Because the source trapezoid is not exactly symmetric around x = 640, that point is not at x = 640 in the top-down view. `vehicle_x()` maps it there with the perspective matrix (`cv2.perspectiveTransform`), which gives x = 611.3. The lane centre is the mean of the left and right polynomial at the bottom row:
+
+offset = (vehicle_x − lane_centre) · `xm_per_pix`
+
+A positive offset means that the vehicle is right of the lane centre, a negative offset that it is left of it.
+
+Results (`python main.py images`):
+
+| Image | Left line | Right line | Lane radius | Vehicle offset |
+|---|---|---|---|---|
+| `straight_lines1.jpg` | 2504 m | 6752 m | 4628 m | 0.17 m left |
+| `test2.jpg` | 306 m | 943 m | 625 m | 0.56 m left |
+
+On the straight road the radius is several kilometres, which is expected: a straight line has an infinite radius, and a small curvature from measurement noise gives a large but finite value. On the curved road the radius is a few hundred metres, a realistic value for a highway curve. The difference between the left and right line on `test2.jpg` comes from the right line, which has only two dashes in view.
 
 #### 6. Provide an example image of your result plotted back down onto the road such that the lane area is identified clearly.
 

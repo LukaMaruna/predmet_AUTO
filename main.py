@@ -1,6 +1,6 @@
 """Lane finding pipeline entry point.
 
-    python main.py calibrate    compute camera calibration and perspective points,
+    python main.py calibrate    compute camera calibration, perspective points and pixel scale,
                                 save calibration.npz and perspective.npz
     python main.py images       run the pipeline steps on test images, save writeup images
 """
@@ -9,7 +9,7 @@ import argparse
 import cv2
 import numpy as np
 
-from src import calibration, lane_detection, perspective, perspective_calibration, thresholds
+from src import calibration, lane_detection, measurements, perspective, perspective_calibration, thresholds
 from src.paths import (CALIBRATION_FILE, CAMERA_CAL_DIR, OUTPUT_IMAGES_DIR, PERSPECTIVE_FILE,
                        STRAIGHT_ROAD_IMAGE, TEST_IMAGES_DIR)
 
@@ -55,14 +55,23 @@ def cmd_calibrate(_args):
     undistorted = calibration.undistort(calibration.load_image(STRAIGHT_ROAD_IMAGE), mtx, dist)
     src, lines = perspective_calibration.find_src_points(undistorted)
     dst = perspective_calibration.DST
-    perspective_calibration.save(PERSPECTIVE_FILE, src, dst)
 
     for side, line in lines.items():
         print(f"{side} line: {line['inliers'].sum()}/{len(line['ys'])} rows used, "
               f"max distance from fitted line {line['residual']:.1f} px")
     print(f"Source points:\n{np.array2string(src, precision=1)}")
-    print(f"Saved {PERSPECTIVE_FILE.name}")
     save_image("03_perspective_points.jpg", draw_perspective_measurement(undistorted, src, lines))
+
+    # Metres per pixel and vehicle position in the top-down view of the same image
+    binary = thresholds.binary_image(perspective.warper(undistorted, src, dst))
+    xm_per_pix, ym_per_pix, dashes = perspective_calibration.pixel_scale(binary, dst)
+    vehicle_x = perspective_calibration.vehicle_x(src, dst, undistorted.shape[1])
+    print(f"Dash lengths: {dashes} px")
+    print(f"xm_per_pix = {xm_per_pix:.5f} m, ym_per_pix = {ym_per_pix:.5f} m, vehicle at x = {vehicle_x:.1f}")
+
+    perspective_calibration.save(PERSPECTIVE_FILE, src=src, dst=dst, xm_per_pix=xm_per_pix,
+                                 ym_per_pix=ym_per_pix, vehicle_x=vehicle_x)
+    print(f"Saved {PERSPECTIVE_FILE.name}")
 
 
 def draw_perspective_measurement(img, src, lines):
@@ -106,7 +115,8 @@ def draw_lane_lines(binary, lines):
 
 def cmd_images(_args):
     mtx, dist = calibration.load(CALIBRATION_FILE)
-    src, dst = perspective_calibration.load(PERSPECTIVE_FILE)
+    scale = perspective_calibration.load(PERSPECTIVE_FILE)
+    src, dst = scale["src"], scale["dst"]
 
     # Distortion correction on a road image
     img = calibration.load_image(TEST_IMAGES_DIR / "test1.jpg")
@@ -139,6 +149,15 @@ def cmd_images(_args):
               f"fit x = {a:.3e}*y^2 + {b:.3f}*y + {c:.1f}")
     save_image("05_lane_fit.jpg", side_by_side(draw_histogram(binary, histogram), draw_lane_lines(binary, lines),
                                                "Histogram", "Sliding windows and fit"))
+
+    # Radius of curvature and vehicle offset on a straight and on a curved road
+    for name in (STRAIGHT_ROAD_IMAGE.stem, "test2"):
+        img = calibration.load_image(TEST_IMAGES_DIR / f"{name}.jpg")
+        binary = thresholds.binary_image(perspective.warper(calibration.undistort(img, mtx, dist), src, dst))
+        lines, _ = lane_detection.find_lane_lines(binary)
+        m = measurements.measure(lines, scale, binary.shape[0])
+        print(f"{name}: radius left {m['left_radius']:.0f} m, right {m['right_radius']:.0f} m, "
+              f"lane {m['radius']:.0f} m; vehicle offset {m['offset']:+.2f} m")
 
 
 def main():

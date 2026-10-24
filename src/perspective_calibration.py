@@ -23,6 +23,15 @@ WHITE_UPPER = np.array([179, 40, 255])
 # A line centre further than this from the fitted line belongs to some other line
 INLIER_TOLERANCE = 5    # px
 
+# US highway standards: lane width 12 ft, dash length of a dashed line 10 ft
+LANE_WIDTH_M = 3.7
+DASH_LENGTH_M = 3.0
+
+# Dashes are measured in a column band of +-DASH_BAND px around a line in the top-down
+# view; shorter pixel runs are noise, not dashes
+DASH_BAND = 20      # px
+MIN_DASH = 30       # px
+
 
 def lane_line_mask(img):
     """Mask (255) of yellow and white pixels."""
@@ -91,10 +100,39 @@ def find_src_points(undistorted):
     return src, lines
 
 
-def save(path, src, dst):
-    np.savez(path, src=src, dst=dst)
+def dash_lengths(binary, x):
+    """Lengths of the complete dashes around column x of the binary top-down image, px."""
+    rows = (binary[:, int(x) - DASH_BAND:int(x) + DASH_BAND] > 0).any(axis=1)
+    lengths, start = [], None
+    for y, on in enumerate(rows):
+        if on and start is None:
+            start = y
+        elif not on and start is not None:
+            # A dash cut off by the top of the image is not complete
+            if start > 0 and y - start >= MIN_DASH:
+                lengths.append(y - start)
+            start = None
+    return lengths
+
+
+def pixel_scale(binary, dst):
+    """Metres per pixel in x (lane width) and y (dash length) of the top-down view."""
+    xm_per_pix = LANE_WIDTH_M / (dst[2][0] - dst[1][0])
+    lengths = dash_lengths(binary, dst[1][0]) + dash_lengths(binary, dst[2][0])
+    ym_per_pix = DASH_LENGTH_M / np.mean(lengths)
+    return xm_per_pix, ym_per_pix, lengths
+
+
+def vehicle_x(src, dst, image_width):
+    """Column of the vehicle (image centre of the camera view) in the top-down view."""
+    M = cv2.getPerspectiveTransform(src, dst)
+    point = np.float32([[[image_width / 2, Y_BOTTOM]]])
+    return cv2.perspectiveTransform(point, M)[0, 0, 0]
+
+
+def save(path, **values):
+    np.savez(path, **values)
 
 
 def load(path):
-    data = np.load(path)
-    return data["src"], data["dst"]
+    return dict(np.load(path))
