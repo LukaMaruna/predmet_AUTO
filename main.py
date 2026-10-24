@@ -9,7 +9,7 @@ import argparse
 import cv2
 import numpy as np
 
-from src import calibration, perspective, perspective_calibration
+from src import calibration, perspective, perspective_calibration, thresholds
 from src.paths import (CALIBRATION_FILE, CAMERA_CAL_DIR, OUTPUT_IMAGES_DIR, PERSPECTIVE_FILE,
                        STRAIGHT_ROAD_IMAGE, TEST_IMAGES_DIR)
 
@@ -96,6 +96,12 @@ def cmd_images(_args):
     cv2.polylines(warped, [dst.astype(np.int32)], True, (0, 0, 255), 3)
     save_image("03_warped_straight_lines.jpg",
                side_by_side(undistorted, warped, "Source points", "Warped, destination points"))
+
+    # Binary image of the warped road
+    img = calibration.load_image(TEST_IMAGES_DIR / "test1.jpg")
+    warped = perspective.warper(calibration.undistort(img, mtx, dist), src, dst)
+    binary = cv2.cvtColor(thresholds.binary_image(warped), cv2.COLOR_GRAY2BGR)
+    save_image("04_binary.jpg", side_by_side(warped, binary, "Warped", "Binary"))
 
 
 def main():

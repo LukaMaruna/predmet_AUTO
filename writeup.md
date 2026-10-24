@@ -22,7 +22,7 @@ The goals / steps of this project are the following:
 [image0]: ./output_images/01_chessboard_corners.jpg "Detected corners"
 [image1]: ./output_images/01_undistort_chessboard.jpg "Undistorted"
 [image2]: ./output_images/02_undistort_road.jpg "Road Transformed"
-[image3]: ./examples/binary_combo_example.jpg "Binary Example"
+[image3]: ./output_images/04_binary.jpg "Binary Example"
 [image3a]: ./output_images/03_perspective_points.jpg "Perspective points"
 [image4]: ./output_images/03_warped_straight_lines.jpg "Warp Example"
 [image5]: ./examples/color_fit_lines.jpg "Fit Visual"
@@ -81,7 +81,25 @@ The difference is most visible near the image edges: the guard rail on the left 
 
 #### 2. Describe how (and identify where in your code) you used color transforms, gradients or other methods to create a thresholded binary image.  Provide an example of a binary image result.
 
-TODO: Add your text here!!!
+The binary image is created from the warped (top-down) image, after the perspective transform described in the next section. At that point only the road in front of the car is left in the image, so trees, sky and cars at the side cannot produce false line pixels.
+
+The code is in `src/thresholds.py`. `binary_image()` combines two colour masks with a logical OR:
+
+* `yellow_mask()` converts the image to HSV and keeps pixels in the yellow range with `cv2.inRange()`: hue 15–35, saturation ≥ 80, value ≥ 50. HSV separates colour (hue) from brightness, so yellow lines are found on dark asphalt, on light concrete and partly in shadow.
+* `red_channel_mask()` thresholds the red channel with `cv2.threshold()` at 232. White lines have high red, green and blue values, and yellow lines have high red and green, so both are among the brightest pixels in the red channel.
+
+No gradient (Sobel) threshold is used: the two colour masks were enough on all test images.
+
+The thresholds were chosen on the eight test images from the project camera (`straight_lines1-2.jpg`, `test1-6.jpg`):
+
+* Red threshold: white line pixels have a red value of at least 235 on every image. The road surface between the lines reaches about 100 on asphalt, but up to 232 on the light concrete in `test1.jpg` and `test4.jpg`. A threshold of 232 keeps the lines and removes the concrete; at 225 the concrete in `test1.jpg` already adds about 12 000 false pixels.
+* Yellow range: a saturation limit of 80 instead of 100 recovers the part of the yellow line in `test4.jpg` that lies in shadow. A value limit of 50 keeps dark brown ground out of the mask. Lowering it to 30 adds noise rather than line pixels.
+
+The hardest image is `test5.jpg`, where tree shadows cover the far part of the yellow line. Both lines are still detected in the lower part of the image.
+
+Example on `test1.jpg` (light concrete):
+
+![alt text][image3]
 
 #### 3. Describe how (and identify where in your code) you performed a perspective transform and provide an example of a transformed image.
 
