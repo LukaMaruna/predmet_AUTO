@@ -9,9 +9,12 @@ import argparse
 import cv2
 import numpy as np
 
-from src import calibration, lane_detection, measurements, perspective, perspective_calibration, thresholds
+from src import calibration, perspective, perspective_calibration, pipeline, thresholds
 from src.paths import (CALIBRATION_FILE, CAMERA_CAL_DIR, OUTPUT_IMAGES_DIR, PERSPECTIVE_FILE,
                        STRAIGHT_ROAD_IMAGE, TEST_IMAGES_DIR)
+
+# Test images taken with the calibrated camera (the 960x540 images come from another camera)
+TEST_IMAGE_NAMES = ["straight_lines1", "straight_lines2"] + [f"test{i}" for i in range(1, 7)]
 
 
 def side_by_side(left, right, left_title, right_title):
@@ -113,51 +116,45 @@ def draw_lane_lines(binary, lines):
     return out
 
 
+def save_step_images(name, img, steps, src, dst):
+    """Writeup images of the individual pipeline steps, each from the test image that shows it best."""
+    if name == "test1":
+        # Distortion correction, and the binary image on light concrete
+        save_image("02_undistort_road.jpg", side_by_side(img, steps["undistorted"], "Original", "Undistorted"))
+        binary = cv2.cvtColor(steps["binary"], cv2.COLOR_GRAY2BGR)
+        save_image("04_binary.jpg", side_by_side(steps["warped"], binary, "Warped", "Binary"))
+
+    if name == STRAIGHT_ROAD_IMAGE.stem:
+        # Perspective transform on a straight road: source trapezoid -> destination rectangle
+        undistorted, warped = steps["undistorted"].copy(), steps["warped"].copy()
+        cv2.polylines(undistorted, [src.astype(np.int32)], True, (0, 0, 255), 3)
+        cv2.polylines(warped, [dst.astype(np.int32)], True, (0, 0, 255), 3)
+        save_image("03_warped_straight_lines.jpg",
+                   side_by_side(undistorted, warped, "Source points", "Warped, destination points"))
+
+    if name == "test2":
+        # Lane line pixels and polynomial fit on a curved road
+        binary, lines = steps["binary"], steps["lines"]
+        save_image("05_lane_fit.jpg", side_by_side(draw_histogram(binary, steps["histogram"]),
+                                                   draw_lane_lines(binary, lines),
+                                                   "Histogram", "Sliding windows and fit"))
+
+
 def cmd_images(_args):
     mtx, dist = calibration.load(CALIBRATION_FILE)
     scale = perspective_calibration.load(PERSPECTIVE_FILE)
-    src, dst = scale["src"], scale["dst"]
 
-    # Distortion correction on a road image
-    img = calibration.load_image(TEST_IMAGES_DIR / "test1.jpg")
-    undistorted = calibration.undistort(img, mtx, dist)
-    save_image("02_undistort_road.jpg", side_by_side(img, undistorted, "Original", "Undistorted"))
-
-    # Perspective transform on a straight road: source trapezoid -> destination rectangle
-    img = calibration.load_image(STRAIGHT_ROAD_IMAGE)
-    undistorted = calibration.undistort(img, mtx, dist)
-    warped = perspective.warper(undistorted, src, dst)
-    cv2.polylines(undistorted, [src.astype(np.int32)], True, (0, 0, 255), 3)
-    cv2.polylines(warped, [dst.astype(np.int32)], True, (0, 0, 255), 3)
-    save_image("03_warped_straight_lines.jpg",
-               side_by_side(undistorted, warped, "Source points", "Warped, destination points"))
-
-    # Binary image of the warped road
-    img = calibration.load_image(TEST_IMAGES_DIR / "test1.jpg")
-    warped = perspective.warper(calibration.undistort(img, mtx, dist), src, dst)
-    binary = cv2.cvtColor(thresholds.binary_image(warped), cv2.COLOR_GRAY2BGR)
-    save_image("04_binary.jpg", side_by_side(warped, binary, "Warped", "Binary"))
-
-    # Lane line pixels and polynomial fit on a curved road
-    img = calibration.load_image(TEST_IMAGES_DIR / "test2.jpg")
-    warped = perspective.warper(calibration.undistort(img, mtx, dist), src, dst)
-    binary = thresholds.binary_image(warped)
-    lines, histogram = lane_detection.find_lane_lines(binary)
-    for side, line in lines.items():
-        a, b, c = line["fit"]
-        print(f"{side} line: histogram peak at x = {line['base']}, {len(line['ys'])} pixels, "
-              f"fit x = {a:.3e}*y^2 + {b:.3f}*y + {c:.1f}")
-    save_image("05_lane_fit.jpg", side_by_side(draw_histogram(binary, histogram), draw_lane_lines(binary, lines),
-                                               "Histogram", "Sliding windows and fit"))
-
-    # Radius of curvature and vehicle offset on a straight and on a curved road
-    for name in (STRAIGHT_ROAD_IMAGE.stem, "test2"):
+    for name in TEST_IMAGE_NAMES:
         img = calibration.load_image(TEST_IMAGES_DIR / f"{name}.jpg")
-        binary = thresholds.binary_image(perspective.warper(calibration.undistort(img, mtx, dist), src, dst))
-        lines, _ = lane_detection.find_lane_lines(binary)
-        m = measurements.measure(lines, scale, binary.shape[0])
-        print(f"{name}: radius left {m['left_radius']:.0f} m, right {m['right_radius']:.0f} m, "
-              f"lane {m['radius']:.0f} m; vehicle offset {m['offset']:+.2f} m")
+        result, steps = pipeline.process_image(img, mtx, dist, scale)
+        save_image(f"07_result_{name}.jpg", result)
+        save_step_images(name, img, steps, scale["src"], scale["dst"])
+
+        m, lines = steps["measurements"], steps["lines"]
+        fits = ", ".join(f"{side} x = {a:.2e}*y^2 + {b:.3f}*y + {c:.1f}"
+                         for side, (a, b, c) in ((s, lines[s]["fit"]) for s in ("left", "right")))
+        print(f"  {name}: radius left {m['left_radius']:.0f} m, right {m['right_radius']:.0f} m, "
+              f"lane {m['radius']:.0f} m; vehicle offset {m['offset']:+.2f} m; {fits}")
 
 
 def main():

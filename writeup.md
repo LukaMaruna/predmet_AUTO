@@ -26,7 +26,7 @@ The goals / steps of this project are the following:
 [image3a]: ./output_images/03_perspective_points.jpg "Perspective points"
 [image4]: ./output_images/03_warped_straight_lines.jpg "Warp Example"
 [image5]: ./output_images/05_lane_fit.jpg "Fit Visual"
-[image6]: ./examples/example_output.jpg "Output"
+[image6]: ./output_images/07_result_test2.jpg "Output"
 [video1]: ./project_video.mp4 "Video"
 
 ---
@@ -194,7 +194,25 @@ On the straight road the radius is several kilometres, which is expected: a stra
 
 #### 6. Provide an example image of your result plotted back down onto the road such that the lane area is identified clearly.
 
-TODO: Add your text here!!!
+The whole pipeline for one image is `process_image()` in `src/pipeline.py`:
+
+1. distortion correction
+2. perspective transform
+3. binary image
+4. lane line detection
+5. measurements
+6. drawing
+
+The drawing is done in `src/visualization.py`:
+
+* `draw_lane()` evaluates both polynomials for every row of the top-down image and fills the polygon between them (`cv2.fillPoly`) on an empty top-down image. It then warps that image back to the camera view with the inverse perspective transform (`warper(img, dst, src)`, the same function with source and destination swapped). Finally it blends the result with the undistorted image (`cv2.addWeighted`, lane at 30 % opacity).
+* `draw_measurements()` writes the lane radius of curvature and the vehicle offset onto the image (`cv2.putText`).
+
+`python main.py images` runs the pipeline on all eight test images from the project camera and saves the results as `output_images/07_result_<name>.jpg`. The lane is identified correctly on all of them, including the curves (`test2`, `test3`, `test6`), the light concrete (`test1`, `test4`) and the tree shadows (`test5`).
+
+Result on `test2.jpg`:
+
+![alt text][image6]
 
 ### Pipeline (video)
 
