@@ -1,6 +1,7 @@
 """Lane finding pipeline entry point.
 
-    python main.py calibrate    compute camera calibration, save calibration.npz
+    python main.py calibrate    compute camera calibration and perspective points,
+                                save calibration.npz and perspective.npz
     python main.py images       run the pipeline steps on test images, save writeup images
 """
 import argparse
@@ -8,8 +9,9 @@ import argparse
 import cv2
 import numpy as np
 
-from src import calibration
-from src.paths import CALIBRATION_FILE, CAMERA_CAL_DIR, OUTPUT_IMAGES_DIR, TEST_IMAGES_DIR
+from src import calibration, perspective, perspective_calibration
+from src.paths import (CALIBRATION_FILE, CAMERA_CAL_DIR, OUTPUT_IMAGES_DIR, PERSPECTIVE_FILE,
+                       STRAIGHT_ROAD_IMAGE, TEST_IMAGES_DIR)
 
 
 def side_by_side(left, right, left_title, right_title):
@@ -49,20 +51,57 @@ def cmd_calibrate(_args):
     out = side_by_side(img, calibration.undistort(img, mtx, dist), "Original", "Undistorted")
     save_image("01_undistort_chessboard.jpg", out)
 
+    # Perspective points, measured on the lane lines of the undistorted straight road image
+    undistorted = calibration.undistort(calibration.load_image(STRAIGHT_ROAD_IMAGE), mtx, dist)
+    src, lines = perspective_calibration.find_src_points(undistorted)
+    dst = perspective_calibration.DST
+    perspective_calibration.save(PERSPECTIVE_FILE, src, dst)
+
+    for side, line in lines.items():
+        print(f"{side} line: {line['inliers'].sum()}/{len(line['ys'])} rows used, "
+              f"max distance from fitted line {line['residual']:.1f} px")
+    print(f"Source points:\n{np.array2string(src, precision=1)}")
+    print(f"Saved {PERSPECTIVE_FILE.name}")
+    save_image("03_perspective_points.jpg", draw_perspective_measurement(undistorted, src, lines))
+
+
+def draw_perspective_measurement(img, src, lines):
+    """Measured line centres (green: used, red: rejected), fitted lines and the trapezoid."""
+    out = img.copy()
+    y_end = perspective_calibration.Y_TOP - 10
+    for line in lines.values():
+        for y, x, used in zip(line["ys"], line["xs"], line["inliers"]):
+            cv2.circle(out, (int(x), int(y)), 4, (0, 255, 0) if used else (0, 0, 255), -1)
+        top = (int(line["a"] * y_end + line["b"]), y_end)
+        bottom = (int(line["a"] * out.shape[0] + line["b"]), out.shape[0])
+        cv2.line(out, top, bottom, (255, 0, 0), 1)
+    cv2.polylines(out, [src.astype(np.int32)], True, (0, 0, 255), 2)
+    return out
+
 
 def cmd_images(_args):
     mtx, dist = calibration.load(CALIBRATION_FILE)
+    src, dst = perspective_calibration.load(PERSPECTIVE_FILE)
 
     # Distortion correction on a road image
     img = calibration.load_image(TEST_IMAGES_DIR / "test1.jpg")
     undistorted = calibration.undistort(img, mtx, dist)
     save_image("02_undistort_road.jpg", side_by_side(img, undistorted, "Original", "Undistorted"))
 
+    # Perspective transform on a straight road: source trapezoid -> destination rectangle
+    img = calibration.load_image(STRAIGHT_ROAD_IMAGE)
+    undistorted = calibration.undistort(img, mtx, dist)
+    warped = perspective.warper(undistorted, src, dst)
+    cv2.polylines(undistorted, [src.astype(np.int32)], True, (0, 0, 255), 3)
+    cv2.polylines(warped, [dst.astype(np.int32)], True, (0, 0, 255), 3)
+    save_image("03_warped_straight_lines.jpg",
+               side_by_side(undistorted, warped, "Source points", "Warped, destination points"))
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("calibrate", help="compute camera calibration").set_defaults(func=cmd_calibrate)
+    sub.add_parser("calibrate", help="compute camera calibration and perspective points").set_defaults(func=cmd_calibrate)
     sub.add_parser("images", help="run the pipeline on test images").set_defaults(func=cmd_images)
     args = parser.parse_args()
     args.func(args)

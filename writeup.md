@@ -23,7 +23,8 @@ The goals / steps of this project are the following:
 [image1]: ./output_images/01_undistort_chessboard.jpg "Undistorted"
 [image2]: ./output_images/02_undistort_road.jpg "Road Transformed"
 [image3]: ./examples/binary_combo_example.jpg "Binary Example"
-[image4]: ./examples/warped_straight_lines.jpg "Warp Example"
+[image3a]: ./output_images/03_perspective_points.jpg "Perspective points"
+[image4]: ./output_images/03_warped_straight_lines.jpg "Warp Example"
 [image5]: ./examples/color_fit_lines.jpg "Fit Visual"
 [image6]: ./examples/example_output.jpg "Output"
 [video1]: ./project_video.mp4 "Video"
@@ -84,7 +85,37 @@ TODO: Add your text here!!!
 
 #### 3. Describe how (and identify where in your code) you performed a perspective transform and provide an example of a transformed image.
 
-TODO: Add your text here!!!
+In this pipeline the perspective transform is applied right after distortion correction, before the binary image is created, so that thresholding only sees the road in front of the car.
+
+The code is in `src/perspective.py`. The function `warper(img, src, dst)` computes the transform matrix with `cv2.getPerspectiveTransform()` and applies it with `cv2.warpPerspective()`. The output image has the same size as the input. The inverse transform, used later to draw the lane back onto the road, is the same function with `src` and `dst` swapped.
+
+The source and destination points are found once, together with the camera calibration (`python main.py calibrate`), and saved to `perspective.npz`. The pipeline then only loads them.
+
+The code that finds them is in `src/perspective_calibration.py`. It uses the undistorted `straight_lines1.jpg`. On that straight road the two lane lines are parallel, so a section of the lane is a rectangle on the road and a trapezoid in the image. The source points are the corners of that trapezoid, measured on the lane lines in `find_src_points()`:
+
+1. `lane_line_mask()` marks yellow and white pixels using HSV colour ranges (`cv2.inRange`).
+2. `line_centres()` goes through every 5th row between y = 440 and y = 630. In each row it takes, on the left and on the right half of the image, the marked pixel closest to the image centre, and the centre of the run of pixels it belongs to.
+3. Some of those centres belong to other lines, for example the next lane line on the right where the dashed line has a gap. `fit_line_ransac()` fits x = a·y + b with RANSAC: every pair of points is tried as a candidate line, and the line with the most points within 5 px wins. The final line is a least-squares fit through those points only.
+4. The source points are the two fitted lines at y = 450 (far end, where the lines are still sharp) and y = 630 (just above the car hood).
+
+On the left line 36 of 39 rows were used, on the right line 10 of 17. The used points are at most 2 px from the fitted lines, which also confirms that the distortion correction made the lines straight.
+
+In the image below, green dots are used line centres, red dots are rejected ones, blue lines are the fits and the red trapezoid is the result:
+
+![alt text][image3a]
+
+The destination points are not measured but chosen: a rectangle with the lane lines at x = 320 and x = 960, spanning the full image height (`DST` in `perspective_calibration.py`).
+
+| Source | Destination |
+|:-------------:|:-------------:|
+| 612.7, 450 | 320, 0 |
+| 349.2, 630 | 320, 720 |
+| 988.1, 630 | 960, 720 |
+| 706.0, 450 | 960, 0 |
+
+After the transform both lines of `straight_lines1.jpg` are vertical and parallel:
+
+![alt text][image4]
 
 #### 4. Describe how (and identify where in your code) you identified lane-line pixels and fit their positions with a polynomial?
 
